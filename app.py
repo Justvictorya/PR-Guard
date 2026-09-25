@@ -71,21 +71,89 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Custom CSS — minimal, clean
+# Custom CSS — PR Guard brand identity (purple #7C3AED palette)
 # ---------------------------------------------------------------------------
 st.markdown("""
 <style>
+    /* Layout */
     .main .block-container { max-width: 900px; padding-top: 2rem; }
     .stAlert { border-radius: 6px; }
-    .step-label { color: #57606a; font-size: 0.85rem; margin-bottom: 0.25rem; }
+    .step-label { color: #D8B4FE; font-size: 0.85rem; margin-bottom: 0.25rem; }
+
+    /* Primary button — Run Audit */
+    div.stButton > button[kind="primary"],
+    div.stFormSubmitButton > button[kind="primary"] {
+        background-color: #7C3AED !important;
+        border: none !important;
+        color: #F3F4F6 !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        transition: background-color 0.2s ease !important;
+    }
+    div.stButton > button[kind="primary"]:hover,
+    div.stFormSubmitButton > button[kind="primary"]:hover {
+        background-color: #6D28D9 !important;
+        color: #ffffff !important;
+    }
+
+    /* Download button */
+    div.stDownloadButton > button {
+        background-color: #1E222D !important;
+        border: 1px solid #7C3AED !important;
+        color: #D8B4FE !important;
+        border-radius: 8px !important;
+        transition: background-color 0.2s ease !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #7C3AED !important;
+        color: #ffffff !important;
+    }
+
+    /* Input field — purple focus border */
+    div[data-baseweb="input"] input:focus,
+    div[data-baseweb="textarea"] textarea:focus {
+        border-color: #7C3AED !important;
+        box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.25) !important;
+    }
+
+    /* Text input container */
+    div[data-baseweb="input"],
+    div[data-baseweb="textarea"] {
+        border-radius: 8px !important;
+    }
+
+    /* Lavender accents on captions and helper text */
+    .stCaption, small { color: #D8B4FE !important; }
+
+    /* Markdown report — code blocks get subtle purple border-left */
+    .stMarkdown pre {
+        border-left: 3px solid #7C3AED;
+        padding-left: 1rem;
+        background-color: #1E222D;
+    }
+
+    /* Divider */
+    hr { border-color: #7C3AED33 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Header
+# Header — logo + title side by side
 # ---------------------------------------------------------------------------
-st.title("🛡️ PR Guard")
-st.caption("Automated pull request auditor — checks your PR against the repo's contribution rules.")
+_logo_path = os.path.join(os.path.dirname(__file__), "pr-guard-logo.svg")
+_col_logo, _col_title = st.columns([1, 8])
+with _col_logo:
+    if os.path.exists(_logo_path):
+        with open(_logo_path) as _f:
+            st.markdown(
+                f'<div style="padding-top:0.25rem">{_f.read()}</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown("🛡️", unsafe_allow_html=False)
+with _col_title:
+    st.title("PR Guard")
+    st.caption("Automated pull request auditor — checks your PR against the repo's contribution rules.")
 
 st.divider()
 
