@@ -53,7 +53,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import get_github_token, get_llm
-from github_client import fetch_pr_data, get_repo_file
+from github_client import fetch_data, get_repo_file, MODE_PR, MODE_REPO
 from agents.policy_parser import parse_policy
 from agents.diff_auditor import audit_diff
 from agents.api_extractor import extract_apis
@@ -162,9 +162,12 @@ st.divider()
 # ---------------------------------------------------------------------------
 with st.form("audit_form"):
     pr_url = st.text_input(
-        "GitHub Pull Request URL",
-        placeholder="https://github.com/owner/repo/pull/42",
-        help="Paste any public GitHub PR URL. Private repos require a token with read:repo scope.",
+        "GitHub URL",
+        placeholder="https://github.com/owner/repo/pull/42  or  https://github.com/owner/repo",
+        help=(
+            "Paste a **PR URL** to audit a specific pull request, "
+            "or a **repo URL** to run a general compliance audit on the codebase."
+        ),
     )
     submitted = st.form_submit_button("🔍 Run Audit", type="primary", use_container_width=True)
 
@@ -196,16 +199,24 @@ def run_audit(url: str) -> str:
         status.write(msg)
 
     try:
-        # ── Step 1: Fetch PR data from GitHub ──────────────────────────────
-        progress.progress(10, text="Fetching PR from GitHub…")
-        log("📡 Fetching PR data from GitHub…")
+        # ── Step 1: Detect mode + fetch data from GitHub ───────────────────
+        progress.progress(10, text="Fetching data from GitHub…")
+        log("📡 Fetching data from GitHub…")
         t0 = time.time()
-        pr_data = fetch_pr_data(url)
-        log(f"   ✅ Fetched PR #{pr_data['pr_number']}: **{pr_data['title']}** "
-            f"({len(pr_data['diff'])} diff chars, "
-            f"{len(pr_data['commits'])} commits, "
-            f"{len(pr_data['changed_files'])} files) "
-            f"in {time.time()-t0:.1f}s")
+        pr_data = fetch_data(url)
+        mode = pr_data["mode"]
+
+        if mode == MODE_PR:
+            log(f"   🔀 **PR audit mode** — PR #{pr_data['pr_number']}: **{pr_data['title']}** "
+                f"({len(pr_data['diff'])} diff chars, "
+                f"{len(pr_data['commits'])} commits, "
+                f"{len(pr_data['changed_files'])} files) "
+                f"in {time.time()-t0:.1f}s")
+        else:
+            log(f"   📁 **Repository audit mode** — `{pr_data['repo_full_name']}` "
+                f"({len(pr_data['changed_files'])} root files, "
+                f"{len(pr_data['commits'])} recent commits) "
+                f"in {time.time()-t0:.1f}s")
 
         repo = pr_data["repo_obj"]
 
@@ -290,13 +301,20 @@ if submitted:
         st.stop()
 
     if not pr_url.strip():
-        st.warning("Please enter a GitHub PR URL.")
+        st.warning("Please enter a GitHub URL (PR or repository).")
         st.stop()
 
     try:
         report = run_audit(pr_url.strip())
         st.session_state["last_report"] = report
         st.session_state["last_url"]    = pr_url.strip()
+        # store mode for the badge (run_audit doesn't return it directly;
+        # we infer it from the URL after a successful run)
+        from github_client import classify_url
+        try:
+            st.session_state["last_mode"] = classify_url(pr_url.strip())
+        except Exception:
+            st.session_state["last_mode"] = MODE_PR
     except ValueError as e:
         st.error(f"**Invalid URL:** {e}")
         st.stop()
@@ -307,6 +325,13 @@ if submitted:
 # Display cached report (survives re-renders)
 if "last_report" in st.session_state:
     st.divider()
+
+    # Mode badge
+    _mode = st.session_state.get("last_mode", MODE_PR)
+    if _mode == MODE_PR:
+        st.info("🔀 **Pull Request Audit** — results reflect the specific PR diff and commits.", icon="🔀")
+    else:
+        st.info("📁 **Repository Audit** — results reflect the repo's overall structure and contribution guidelines.", icon="📁")
 
     col1, col2 = st.columns([6, 1])
     with col1:

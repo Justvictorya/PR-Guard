@@ -37,11 +37,21 @@ _SEVERITY_ICON = {"FAIL": "❌", "WARN": "⚠️", "INFO": "ℹ️"}
 
 def _header(pr_data: dict) -> str:
     repo  = pr_data.get("repo_full_name", "unknown/repo")
-    num   = pr_data.get("pr_number", "?")
+    num   = pr_data.get("pr_number")       # None in repo mode
     title = pr_data.get("title", "(no title)")
-    url   = f"https://github.com/{repo}/pull/{num}"
+    mode  = pr_data.get("mode", "pr")
     ts    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    if mode == "repo" or num is None:
+        return (
+            f"# PR Guard Report — Repository Audit\n\n"
+            f"**Repository:** [{repo}](https://github.com/{repo})  \n"
+            f"**Description:** {title}  \n"
+            f"**Audit type:** 📁 General compliance audit (no PR diff)  \n"
+            f"**Audited:** {ts}  \n"
+        )
+
+    url = f"https://github.com/{repo}/pull/{num}"
     return (
         f"# PR Guard Report\n\n"
         f"**Repository:** [{repo}](https://github.com/{repo})  \n"
