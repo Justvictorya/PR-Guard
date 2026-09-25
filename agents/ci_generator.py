@@ -49,11 +49,11 @@ jobs:
       - name: Run PR Guard
         id: audit
         env:
-          GITHUB_TOKEN: ${{{{ secrets.PR_GUARD_TOKEN }}}}
-          GROQ_API_KEY: ${{{{ secrets.GROQ_API_KEY }}}}
+          GITHUB_TOKEN: ${{ secrets.PR_GUARD_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           LLM_PROVIDER: groq
           LLM_MODEL: openai/gpt-oss-120b
-          PR_URL: ${{{{ github.event.pull_request.html_url }}}}
+          PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           cd pr-guard-tool
           python3 - <<'PYTHON'
