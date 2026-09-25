@@ -28,7 +28,7 @@ def get_llm():
     if provider == "groq":
         from langchain_groq import ChatGroq
 
-        model = os.getenv("LLM_MODEL", "llama3-8b-8192")
+        model = os.getenv("LLM_MODEL", "openai/gpt-oss-120b")
         api_key = os.getenv("GROQ_API_KEY", "")
         if not api_key:
             raise EnvironmentError(
