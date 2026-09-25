@@ -58,7 +58,9 @@ from agents.policy_parser import parse_policy
 from agents.diff_auditor import audit_diff
 from agents.api_extractor import extract_apis
 from agents.similar_repos import find_similar
-from agents.reporter import generate_report
+from agents.reporter import generate_report, get_risk_score
+from agents.pr_description import generate_pr_description
+from agents.ci_generator import generate_workflow, get_setup_instructions
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -270,15 +272,29 @@ def run_audit(url: str) -> str:
         similar = find_similar(repo)
         log(f"   ✅ Similar Repos: {len(similar)} found")
 
-        # ── Step 4: Generate report ─────────────────────────────────────────
+        # ── Step 4: Auto PR Description (only if description is weak) ───────
+        progress.progress(87, text="Checking PR description…")
+        pr_desc_suggestion = None
+        if pr_data.get("mode") == MODE_PR:
+            existing_desc = (pr_data.get("description") or "").strip()
+            if len(existing_desc) < 80:
+                log("✍️ PR description is weak — generating draft…")
+                pr_desc_suggestion = generate_pr_description(pr_data)
+                if pr_desc_suggestion:
+                    log("   ✅ Draft PR description generated")
+            else:
+                log("   ✅ PR description is adequate — skipping draft")
+
+        # ── Step 5: Generate report ──────────────────────────────────────────
         progress.progress(95, text="Generating report…")
         log("📝 Assembling report…")
         report = generate_report(pr_data, checklist, findings, api_entries, similar)
+        score  = get_risk_score(findings, api_entries)
 
         progress.progress(100, text="Done!")
         status.update(label="✅ Audit complete!", state="complete", expanded=False)
 
-        return report
+        return report, score, pr_desc_suggestion
 
     except Exception as exc:
         status.update(label="❌ Audit failed", state="error", expanded=True)
@@ -305,11 +321,11 @@ if submitted:
         st.stop()
 
     try:
-        report = run_audit(pr_url.strip())
-        st.session_state["last_report"] = report
-        st.session_state["last_url"]    = pr_url.strip()
-        # store mode for the badge (run_audit doesn't return it directly;
-        # we infer it from the URL after a successful run)
+        report, score, pr_desc = run_audit(pr_url.strip())
+        st.session_state["last_report"]  = report
+        st.session_state["last_score"]   = score
+        st.session_state["last_pr_desc"] = pr_desc
+        st.session_state["last_url"]     = pr_url.strip()
         from github_client import classify_url
         try:
             st.session_state["last_mode"] = classify_url(pr_url.strip())
@@ -326,13 +342,48 @@ if submitted:
 if "last_report" in st.session_state:
     st.divider()
 
-    # Mode badge
+    # ── Risk Score hero metric ────────────────────────────────────────────
+    _score = st.session_state.get("last_score", 100)
+    if _score >= 80:
+        _score_color = "#22c55e"   # green
+        _score_label = "LOW RISK"
+    elif _score >= 50:
+        _score_color = "#f59e0b"   # amber
+        _score_label = "MEDIUM RISK"
+    else:
+        _score_color = "#ef4444"   # red
+        _score_label = "HIGH RISK"
+
+    st.markdown(
+        f"""
+        <div style="
+            background:{_score_color}22;
+            border:2px solid {_score_color};
+            border-radius:12px;
+            padding:1rem 1.5rem;
+            display:flex;
+            align-items:center;
+            gap:1.5rem;
+            margin-bottom:1rem;
+        ">
+            <span style="font-size:2.8rem;font-weight:900;color:{_score_color}">{_score}</span>
+            <div>
+                <div style="font-size:1.1rem;font-weight:700;color:{_score_color}">{_score_label}</div>
+                <div style="font-size:0.8rem;color:#D8B4FE">Risk Score out of 100 — higher is better</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Mode badge ─────────────────────────────────────────────────────────
     _mode = st.session_state.get("last_mode", MODE_PR)
     if _mode == MODE_PR:
         st.info("🔀 **Pull Request Audit** — results reflect the specific PR diff and commits.", icon="🔀")
     else:
         st.info("📁 **Repository Audit** — results reflect the repo's overall structure and contribution guidelines.", icon="📁")
 
+    # ── Report + download ──────────────────────────────────────────────────
     col1, col2 = st.columns([6, 1])
     with col1:
         st.subheader("Audit Report")
@@ -346,3 +397,31 @@ if "last_report" in st.session_state:
         )
 
     st.markdown(st.session_state["last_report"])
+
+    # ── Auto-Generated PR Description ─────────────────────────────────────
+    _pr_desc = st.session_state.get("last_pr_desc")
+    if _pr_desc:
+        st.divider()
+        st.subheader("✍️ Suggested PR Description")
+        st.caption("Your PR description was blank or too short. Here's a professional draft — copy and paste it into GitHub.")
+        st.markdown(_pr_desc)
+        st.download_button(
+            label="⬇️ Download description",
+            data=_pr_desc,
+            file_name="pr-description-draft.md",
+            mime="text/markdown",
+        )
+
+    # ── GitHub Actions CI Workflow Generator ──────────────────────────────
+    st.divider()
+    with st.expander("⚙️ Install PR Guard in your repository (GitHub Actions)", expanded=False):
+        _repo_name = st.session_state.get("last_url", "").split("github.com/")[-1].split("/pull")[0]
+        st.markdown(get_setup_instructions())
+        _yaml = generate_workflow(_repo_name)
+        st.code(_yaml, language="yaml")
+        st.download_button(
+            label="⬇️ Download pr-guard.yml",
+            data=_yaml,
+            file_name="pr-guard.yml",
+            mime="text/yaml",
+        )

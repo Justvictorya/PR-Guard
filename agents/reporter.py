@@ -6,12 +6,13 @@ No LLM call is made here — this is pure string templating so it is fast,
 deterministic, and free.
 
 Report sections:
-  1. Header — PR title, repo, link
-  2. Summary badge line — ✅ N passed | ⚠️ N warnings | ❌ N failed
-  3. Policy Compliance table — one row per Finding
-  4. External APIs & Dependencies table — one row per ApiEntry
-  5. Similar Projects — list of up to 5 repos
-  6. Next Steps — numbered action items (FAILs first, then WARNs)
+  0. Risk Score  - bold colour-coded 0-100 headline metric
+  1. Header      - PR title, repo, link
+  2. Summary     - pass/warn/fail badge line
+  3. Policy table - one row per Finding, with copy-paste fix commands
+  4. APIs table  - one row per ApiEntry
+  5. Similar Projects
+  6. Next Steps  - numbered with exact copy-paste shell commands
 """
 
 import sys
@@ -29,6 +30,76 @@ from models import ChecklistItem, Finding, ApiEntry
 _STATUS_ICON = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}
 _RISK_ICON   = {"LOW": "🟢", "MED": "🟡", "HIGH": "🔴"}
 _SEVERITY_ICON = {"FAIL": "❌", "WARN": "⚠️", "INFO": "ℹ️"}
+
+# ---------------------------------------------------------------------------
+# Risk Score calculation
+# ---------------------------------------------------------------------------
+# Points deducted per finding type — tuned so a clean PR scores 100
+_RISK_WEIGHTS = {
+    ("FAIL", False): 20,   # policy FAIL
+    ("FAIL", True):  25,   # secret-scan FAIL (extra penalty)
+    ("WARN", False): 8,
+    ("WARN", True):  8,
+}
+_API_RISK_PENALTY = {"HIGH": 10, "MED": 4, "LOW": 0}
+
+
+def compute_risk_score(findings: list[Finding], api_entries: list[ApiEntry]) -> int:
+    """Return an integer 0-100 where 100 = perfect, 0 = catastrophic."""
+    deductions = 0
+    for f in findings:
+        is_secret = f.rule_id == "secret-scan"
+        key = (f.status, is_secret)
+        deductions += _RISK_WEIGHTS.get(key, 0)
+    for e in api_entries:
+        deductions += _API_RISK_PENALTY.get(e.risk, 0)
+    return max(0, 100 - deductions)
+
+
+def _risk_score_block(score: int) -> str:
+    """Return a bold, colour-labelled risk score block for the report header."""
+    if score >= 80:
+        label = "🟢 LOW RISK"
+        bar   = "█" * (score // 10) + "░" * (10 - score // 10)
+    elif score >= 50:
+        label = "🟡 MEDIUM RISK"
+        bar   = "█" * (score // 10) + "░" * (10 - score // 10)
+    else:
+        label = "🔴 HIGH RISK"
+        bar   = "█" * (score // 10) + "░" * (10 - score // 10)
+
+    return (
+        f"\n## 🎯 Risk Score\n\n"
+        f"**`{score}/100`** &nbsp; {label}\n\n"
+        f"`{bar}` {score}%\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Copy-paste fix command generator
+# ---------------------------------------------------------------------------
+
+# Maps common rule keywords to exact shell/git commands the dev can paste
+_FIX_COMMANDS: list[tuple[str, str]] = [
+    # (keyword in suggestion text, command template)
+    ("Fixes #",          'Add to PR description:  `Fixes #ISSUE_NUMBER`'),
+    ("commit --amend",   'git commit --amend -m "type: your message here"'),
+    ("conventional",     'git commit --amend -m "type(scope): description"'),
+    ("commit message",   'git commit --amend -m "type: description"'),
+    ("test",             'mkdir -p tests && touch tests/test_your_module.py'),
+    ("os.getenv",        'Replace hardcoded value with:  os.getenv("YOUR_VAR_NAME")'),
+    ("secret",           'git rm --cached <file> && echo "<file>" >> .gitignore'),
+    (".env",             'echo "YOUR_VAR=value" >> .env  (then add .env to .gitignore)'),
+]
+
+
+def _get_fix_command(suggestion: str) -> str | None:
+    """Return the best copy-paste command for a given suggestion, or None."""
+    suggestion_lower = suggestion.lower()
+    for keyword, command in _FIX_COMMANDS:
+        if keyword.lower() in suggestion_lower:
+            return command
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +217,6 @@ def _next_steps(findings: list[Finding]) -> str:
         f for f in findings
         if f.status in ("FAIL", "WARN") and f.suggestion.strip()
     ]
-    # Sort: FAIL before WARN
     actionable.sort(key=lambda f: 0 if f.status == "FAIL" else 1)
 
     if not actionable:
@@ -155,7 +225,10 @@ def _next_steps(findings: list[Finding]) -> str:
     lines = ["\n## 🛠️ Next Steps\n"]
     for i, f in enumerate(actionable, 1):
         icon = _STATUS_ICON.get(f.status, "")
-        lines.append(f"{i}. {icon} **{f.rule_id}** — {f.suggestion}")
+        lines.append(f"\n{i}. {icon} **{f.rule_id}** — {f.suggestion}")
+        cmd = _get_fix_command(f.suggestion)
+        if cmd:
+            lines.append(f"\n   ```\n   {cmd}\n   ```")
 
     return "\n".join(lines) + "\n"
 
@@ -196,8 +269,11 @@ def generate_report(
     Returns:
         Complete Markdown string ready to display or save as a .md file.
     """
+    score = compute_risk_score(findings, api_entries)
+
     parts = [
         _header(pr_data),
+        _risk_score_block(score),
         _summary_line(findings),
         _policy_table(findings, checklist),
         _api_table(api_entries),
@@ -206,6 +282,11 @@ def generate_report(
         _footer(),
     ]
     return "\n".join(parts)
+
+
+def get_risk_score(findings: list[Finding], api_entries: list[ApiEntry]) -> int:
+    """Public helper so app.py can display the score separately."""
+    return compute_risk_score(findings, api_entries)
 
 
 # ---------------------------------------------------------------------------
