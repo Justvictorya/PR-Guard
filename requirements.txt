@@ -1,0 +1,8 @@
+streamlit>=1.35.0
+langchain>=0.2.0
+langchain-groq>=0.1.6
+langchain-core>=0.2.0
+PyGithub>=2.3.0
+python-dotenv>=1.0.0
+pydantic>=2.7.0
+requests>=2.32.0

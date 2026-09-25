@@ -1,0 +1,22 @@
+# Keep sensitive keys and generated files out of version control.
+
+# Environment secrets
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Streamlit cache
+.streamlit/
